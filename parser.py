@@ -168,16 +168,17 @@ class ComputeCoolStuff():
         self.messages = data['messages']
         self.name = data['conversation']
         self.totalMessages = len(self.messages)
-        self.users = list(self.getSenders().keys())
+        self.users = list(self.get_num_of_messages_by_user().keys())
         
         print('\nConversation with {}'.format(self.name))
         print('Total messages: {}\n'.format(self.totalMessages))
         # self.printUserStats()
         # self.getAllWords(15)
         # self.plotByUserByWeek()
-        self.compute_breaks()
+        # self.compute_breaks()
+        self.compute_total_words_by_user()
 
-    def getSenders(self):
+    def get_num_of_messages_by_user(self):
         senders = {}
         for message in self.messages:
             sender = message['user']
@@ -190,10 +191,10 @@ class ComputeCoolStuff():
         return senders
     
     def printUserStats(self):
-        senders = self.getSenders()
-        sorted_senders = sorted(senders.items(), key=lambda x:x[1])
+        senders = self.get_num_of_messages_by_user()
+        sorted_senders = self.sort_dict(senders)
         print('User Stats:')
-        for sender in reversed(sorted_senders):
+        for sender in sorted_senders:
             print('{:<18} {} {:<6} ({:.2f}%)'.format(sender[0], '-', sender[1], (sender[1]/self.totalMessages)*100))
         print()
 
@@ -379,6 +380,34 @@ class ComputeCoolStuff():
             print('{:<9} - {}'.format(self.get_name(entry[0]), entry[1]))
         print("\nThe longest break was {} days :(".format(longest_break//24))
         print("But your longest streak was {} days! It started on {}".format(longest_streak, longest_streak_start))
+
+    def compute_total_words_by_user(self):
+        users = dict((user, {
+                'total_words': 0, 
+                'total_letters': 0, 
+                'total_msgs': 0,
+            }) for user in self.users)
+
+        for message in self.messages:
+            temp = re.sub('[ ,.:;]','', message['message'])
+            num_letters = len(temp)
+            num_words = len(message['message'].split())
+
+            user = message['user']
+            users[user]['total_letters'] += num_letters
+            users[user]['total_words'] += num_words
+            users[user]['total_msgs'] += 1
+        
+        tmp = self.sort_dict(self.get_num_of_messages_by_user())
+        for entry in tmp:
+            user = entry[0]
+            print('{:<8} - Total Messages: {}, Total Words: {}\n {:>8} Avg Words per Message: {:.3f}, Avg Letters per Message: {:.3f}'.format(
+                self.get_name(user), users[user]['total_msgs'], 
+                users[user]['total_words'],
+                '',
+                users[user]['total_words']/users[user]['total_msgs'], 
+                users[user]['total_letters']/users[user]['total_words']))
+            print()
 
     def get_name(self, string):
         return string.split(' ', 1)[0]
