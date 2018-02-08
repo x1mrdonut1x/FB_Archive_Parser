@@ -401,7 +401,7 @@ class ComputeCoolStuff():
         tmp = self.sort_dict(self.get_num_of_messages_by_user())
         for entry in tmp:
             user = entry[0]
-            print('{:<8} - Total Messages: {}, Total Words: {}\n {:>8} Avg Words per Message: {:.3f}, Avg Letters per Message: {:.3f}'.format(
+            print('{:<8} - Total Messages: {}, Total Words: {}\n {:>8} Avg Words per Message: {:.2f}, Avg Letters per Message: {:.2f}'.format(
                 self.get_name(user), users[user]['total_msgs'], 
                 users[user]['total_words'],
                 '',
