@@ -62,8 +62,6 @@ def list_all_conversations():
 
 
 class ParseHTMLForData(HTMLParser):
-
-
     def __init__(self):
         super(ParseHTMLForData, self).__init__()
         self.msgs = []
@@ -174,8 +172,10 @@ class ComputeCoolStuff():
         
         print('\nConversation with {}'.format(self.name))
         print('Total messages: {}\n'.format(self.totalMessages))
-        self.printUserStats()
-        self.getAllWords(15)
+        # self.printUserStats()
+        # self.getAllWords(15)
+        # self.plotByUserByWeek()
+        self.compute_breaks()
 
     def getSenders(self):
         senders = {}
@@ -296,16 +296,6 @@ class ComputeCoolStuff():
             
         return users
 
-    def plot(self, x, y, title, x_label, y_label):
-        plt.plot(x, y)
-        plt.xticks(rotation=30)
-        plt.xlabel(xlabel)
-        plt.ylabel(ylabel)
-        plt.title(title)
-        
-        plt.grid()
-        plt.show()
-
     def plotByUserByWeek(self):
         users = self.getMessagesByUserByWeek()
 
@@ -344,6 +334,63 @@ class ComputeCoolStuff():
 
         plt.show()
 
+    def compute_breaks(self):
+        max_difference = 10
+        longest_break = 0
+        longest_streak = 0
+        longest_streak_start = ''
+        start_streak = ''
+        end_streak = ''
+
+        started_by_user = dict((user, 0) for user in self.users)
+        ended_by_user = dict((user, 0) for user in self.users)
+
+        msgs = self.messages
+        for i in range(len(msgs) - 1):
+            msg1 = msgs[i]     # Newer message
+            msg2 = msgs[i + 1] # Older message
+
+            if start_streak == '':
+                start_streak = msg2
+
+            hours_diff = self.get_difference_in_hours(msg1['date'], msg2['date'])
+            
+            if longest_break < hours_diff:
+                longest_break = hours_diff
+
+            if hours_diff > max_difference:
+                started_by_user[msg1['user']] += 1
+                ended_by_user[msg2['user']] += 1
+                
+                end_streak = msg2
+                current_streak = self.get_difference_in_hours(start_streak['date'], end_streak['date']) // 24
+                if longest_streak < current_streak:
+                    longest_streak_start = start_streak['date']
+                    longest_streak = current_streak
+                
+                start_streak = msg2
+            
+
+        print("Conversations started by:")
+        for entry in self.sort_dict(started_by_user):
+            print('{:<9} - {}'.format(self.get_name(entry[0]), entry[1]))
+        print("\nConversations ended by:")
+        for entry in self.sort_dict(ended_by_user):
+            print('{:<9} - {}'.format(self.get_name(entry[0]), entry[1]))
+        print("\nThe longest break was {} days :(".format(longest_break//24))
+        print("But your longest streak was {} days! It started on {}".format(longest_streak, longest_streak_start))
+
+    def get_name(self, string):
+        return string.split(' ', 1)[0]
+
+    def sort_dict(self, dictionary): 
+        return reversed(sorted(dictionary.items(), key=lambda x:x[1]))
+
+    def get_difference_in_hours(self, date1, date2):
+        diff = date1 - date2
+        days, seconds = diff.days, diff.seconds
+        hours = days * 24 + seconds // 3600
+        return hours
 
 def getopts(argv):
     opts = {}
@@ -386,7 +433,6 @@ if __name__ == "__main__":
                 data = pickle.load(fp)
                 analytics = ComputeCoolStuff(data)
                 print('\n')
-                analytics.plotByUserByWeek()
 
     else:
         list_all_conversations()
