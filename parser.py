@@ -62,8 +62,6 @@ def list_all_conversations():
 
 
 class ParseHTMLForData(HTMLParser):
-
-
     def __init__(self):
         super(ParseHTMLForData, self).__init__()
         self.msgs = []
@@ -170,14 +168,17 @@ class ComputeCoolStuff():
         self.messages = data['messages']
         self.name = data['conversation']
         self.totalMessages = len(self.messages)
-        self.users = list(self.getSenders().keys())
+        self.users = list(self.get_num_of_messages_by_user().keys())
         
         print('\nConversation with {}'.format(self.name))
         print('Total messages: {}\n'.format(self.totalMessages))
-        self.printUserStats()
-        self.getAllWords(15)
+        # self.printUserStats()
+        # self.getAllWords(15)
+        # self.plotByUserByWeek()
+        # self.compute_breaks()
+        self.compute_total_words_by_user()
 
-    def getSenders(self):
+    def get_num_of_messages_by_user(self):
         senders = {}
         for message in self.messages:
             sender = message['user']
@@ -190,10 +191,10 @@ class ComputeCoolStuff():
         return senders
     
     def printUserStats(self):
-        senders = self.getSenders()
-        sorted_senders = sorted(senders.items(), key=lambda x:x[1])
+        senders = self.get_num_of_messages_by_user()
+        sorted_senders = self.sort_dict(senders)
         print('User Stats:')
-        for sender in reversed(sorted_senders):
+        for sender in sorted_senders:
             print('{:<18} {} {:<6} ({:.2f}%)'.format(sender[0], '-', sender[1], (sender[1]/self.totalMessages)*100))
         print()
 
@@ -296,16 +297,6 @@ class ComputeCoolStuff():
             
         return users
 
-    def plot(self, x, y, title, x_label, y_label):
-        plt.plot(x, y)
-        plt.xticks(rotation=30)
-        plt.xlabel(xlabel)
-        plt.ylabel(ylabel)
-        plt.title(title)
-        
-        plt.grid()
-        plt.show()
-
     def plotByUserByWeek(self):
         users = self.getMessagesByUserByWeek()
 
@@ -344,6 +335,91 @@ class ComputeCoolStuff():
 
         plt.show()
 
+    def compute_breaks(self):
+        max_difference = 10
+        longest_break = 0
+        longest_streak = 0
+        longest_streak_start = ''
+        start_streak = ''
+        end_streak = ''
+
+        started_by_user = dict((user, 0) for user in self.users)
+        ended_by_user = dict((user, 0) for user in self.users)
+
+        msgs = self.messages
+        for i in range(len(msgs) - 1):
+            msg1 = msgs[i]     # Newer message
+            msg2 = msgs[i + 1] # Older message
+
+            if start_streak == '':
+                start_streak = msg2
+
+            hours_diff = self.get_difference_in_hours(msg1['date'], msg2['date'])
+            
+            if longest_break < hours_diff:
+                longest_break = hours_diff
+
+            if hours_diff > max_difference:
+                started_by_user[msg1['user']] += 1
+                ended_by_user[msg2['user']] += 1
+                
+                end_streak = msg2
+                current_streak = self.get_difference_in_hours(start_streak['date'], end_streak['date']) // 24
+                if longest_streak < current_streak:
+                    longest_streak_start = start_streak['date']
+                    longest_streak = current_streak
+                
+                start_streak = msg2
+            
+
+        print("Conversations started by:")
+        for entry in self.sort_dict(started_by_user):
+            print('{:<9} - {}'.format(self.get_name(entry[0]), entry[1]))
+        print("\nConversations ended by:")
+        for entry in self.sort_dict(ended_by_user):
+            print('{:<9} - {}'.format(self.get_name(entry[0]), entry[1]))
+        print("\nThe longest break was {} days :(".format(longest_break//24))
+        print("But your longest streak was {} days! It started on {}".format(longest_streak, longest_streak_start))
+
+    def compute_total_words_by_user(self):
+        users = dict((user, {
+                'total_words': 0, 
+                'total_letters': 0, 
+                'total_msgs': 0,
+            }) for user in self.users)
+
+        for message in self.messages:
+            temp = re.sub('[ ,.:;]','', message['message'])
+            num_letters = len(temp)
+            num_words = len(message['message'].split())
+
+            user = message['user']
+            users[user]['total_letters'] += num_letters
+            users[user]['total_words'] += num_words
+            users[user]['total_msgs'] += 1
+        
+        tmp = self.sort_dict(self.get_num_of_messages_by_user())
+        for entry in tmp:
+            user = entry[0]
+            print('{:<8} - Total Messages: {}, Total Words: {}\n {:>8} Avg Words per Message: {:.2f}, Avg Letters per Message: {:.2f}'.format(
+                self.get_name(user), users[user]['total_msgs'], 
+                users[user]['total_words'],
+                '',
+                users[user]['total_words']/users[user]['total_msgs'], 
+                users[user]['total_letters']/users[user]['total_words']))
+            print()
+
+    def get_name(self, string):
+        return string.split(' ', 1)[0]
+
+    def sort_dict(self, dictionary): 
+        return reversed(sorted(dictionary.items(), key=lambda x:x[1]))
+
+    def get_difference_in_hours(self, date1, date2):
+        diff = date1 - date2
+        days, seconds = diff.days, diff.seconds
+        hours = days * 24 + seconds // 3600
+        return hours
 
 def getopts(argv):
     opts = {}
@@ -386,7 +462,6 @@ if __name__ == "__main__":
                 data = pickle.load(fp)
                 analytics = ComputeCoolStuff(data)
                 print('\n')
-                analytics.plotByUserByWeek()
 
     else:
         list_all_conversations()
