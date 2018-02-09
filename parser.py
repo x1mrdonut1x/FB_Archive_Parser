@@ -1,15 +1,15 @@
 from html.parser import HTMLParser
-from datetime import datetime, timedelta
 import pickle
 import os.path
 from os import listdir, walk
 import operator
 import sys
 import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
 import numpy as np
 import re
 from scipy.interpolate import spline
-import time
+import datetime
 
 def parse_all_files():
     files = []
@@ -39,13 +39,21 @@ def load_all_saved_files():
 def analyze_all_files(conversations):
     messages_by_conversation = {}
     total_messages = 0
+    total_conversations = 0
     for conversation in conversations:
-        messages_by_conversation[conversation['name']] = len(conversation['messages'])
-        total_messages += len(conversation['messages'])
+        num_messages = len(conversation['messages'])
+        messages_by_conversation[conversation['name']] = num_messages
+        total_messages += num_messages
+        if num_messages > 1:
+            total_conversations += 1
     
-    for entry in sorted(messages_by_conversation.items(), key=lambda x:x[1]):
-        print('{:<20} - {:,} Messages'.format(entry[0][:19], entry[1]))
+    print('Total Messages: {:,}'.format(total_messages))
+    print('Total Conversations: {:,}'.format(total_conversations))
 
+    for entry in sorted(messages_by_conversation.items(), key=lambda x:x[1]):
+        if entry[1] > 1:
+            print('{:<20} - {:,} Messages'.format(entry[0][:19], entry[1]))
+        
 
 def list_all_files():
     conversations = []
@@ -219,7 +227,7 @@ class ComputeCoolStuff():
         self.users = list(self.get_num_of_messages_by_user().keys())
         
         print('\nConversation with {}'.format(self.name))
-        print('Total messages: {}\n'.format(self.totalMessages))
+        print('Total messages: {:,}\n'.format(self.totalMessages))
 
     def get_num_of_messages_by_user(self):
         senders = {}
@@ -238,7 +246,7 @@ class ComputeCoolStuff():
         sorted_senders = self.sort_dict(senders)
         print('User Stats:')
         for sender in sorted_senders:
-            print('{:<18} {} {:<6} ({:.2f}%)'.format(sender[0], '-', sender[1], (sender[1]/self.totalMessages)*100))
+            print('{:<18} - {:,} Messages({:.2f}%)'.format(sender[0], sender[1], (sender[1]/self.totalMessages)*100))
         print()
 
     def week_range(self, date):
@@ -309,6 +317,7 @@ class ComputeCoolStuff():
         for word in sorted_words[-n:]:
             if word[1] > 5: # If count bigger than 5
                 print('{:<8} - {}'.format(word[0], word[1]))
+        print()
 
     def getMessagesByUserByWeek(self):
         users = dict((user, {}) for user in self.users)
@@ -347,7 +356,7 @@ class ComputeCoolStuff():
             x_axis = list(users[user].keys())
             y_axis = list(users[user].values())
 
-            plt.bar(x_axis, y_axis, width=5, label=user)
+            plt.plot(x_axis, y_axis, label=user)
 
         plt.xticks(rotation=30)
         plt.xlabel('Weeks')
@@ -463,8 +472,39 @@ class ComputeCoolStuff():
         days, seconds = diff.days, diff.seconds
         hours = days * 24 + seconds // 3600
         return hours
+    
+    def plot_daily_activity(self):
+        arr = self.get_messages_every_5_minutes(self.messages)
+        x_axis = [i[0] for i in arr]
+        y_axis = [i[1] for i in arr]
 
+        fig, ax = plt.subplots()
+        ax.plot(x_axis, y_axis)
+        
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
+        fig.autofmt_xdate()
 
+        plt.xticks(rotation=30)
+        plt.xlabel('Hour')
+        plt.ylabel('# Messages')
+        plt.title('Daily Messages per 5 Minutes with {}'.format(self.name))
+
+        plt.show()
+
+    def get_messages_every_5_minutes(self, messages):
+        out = {}
+        for msg in messages:
+            date = msg['date']
+            minute = ((date.minute // 5) * 5)
+            hour = (date.hour)
+            entry = datetime.datetime.strptime('{} {}'.format(hour, minute), '%H %M')
+            if entry in out:
+                out[entry] += 1
+            else:
+                out[entry] = 1
+        sorted_out = sorted(out.items(), key=lambda x:x[0])
+        return sorted_out
+    
 def getopts(argv):
     opts = {}
     while argv:
@@ -520,11 +560,26 @@ if __name__ == "__main__":
             analytics.compute_total_words_by_user()
 
         if '-topwords' in args:
-            analytics.getAllWords()
+            analytics.getAllWords(15)
 
         if '-stats' in args:
             analytics.printUserStats()
+
+        if '-activity' in args:
+            analytics.plot_daily_activity()
         
         if '-plot' in args:
             analytics.plotByUserByWeek()
-        
+
+    if '-test' in args:
+        all_messages = []
+        tmp = load_all_saved_files()
+        for x in tmp:
+            for msg in x['messages']:
+                all_messages.append(msg)
+        data = { 
+            'name': 'All Conversations',
+            'messages': all_messages
+        }
+        analytics = ComputeCoolStuff(data)
+        analytics.plot_daily_activity()
