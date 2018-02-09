@@ -22,7 +22,7 @@ def parse_all_files():
 
 
 def load_all_saved_files():
-    conversations = []
+    conversations = {}
     files = []
     for (dirpath, dirnames, filenames) in walk('{}'.format('./saved')):
         files.extend(filenames)
@@ -31,7 +31,7 @@ def load_all_saved_files():
             if(filename.endswith('.pickle')):
                 with open ("./saved/{}".format(filename), 'rb') as fp:
                     data = pickle.load(fp)
-                    conversations.append(data)
+                    conversations[filename[:-12]] = data
         break
     return conversations
 
@@ -40,9 +40,9 @@ def analyze_all_files(conversations):
     messages_by_conversation = {}
     total_messages = 0
     total_conversations = 0
-    for conversation in conversations:
-        num_messages = len(conversation['messages'])
-        messages_by_conversation[conversation['name']] = num_messages
+    for filename in conversations:
+        num_messages = len(conversations[filename]['messages'])
+        messages_by_conversation[filename] = num_messages
         total_messages += num_messages
         if num_messages > 1:
             total_conversations += 1
@@ -52,7 +52,7 @@ def analyze_all_files(conversations):
 
     for entry in sorted(messages_by_conversation.items(), key=lambda x:x[1]):
         if entry[1] > 1:
-            print('{:<20} - {:,} Messages'.format(entry[0][:19], entry[1]))
+            print('{:>9} - {:<20} - {:,} Messages'.format((entry[0] + '.html'), conversations[entry[0]]['name'][:19], entry[1]))
         
 
 def list_all_files():
@@ -254,9 +254,9 @@ class ComputeCoolStuff():
         if dow == 7:
             start_date = date
         else:
-            start_date = date - timedelta(dow)
+            start_date = date - datetime.timedelta(dow)
             
-        end_date = start_date + timedelta(6)
+        end_date = start_date + datetime.timedelta(6)
         return (start_date.date(), end_date.date())
 
     def messagesByWeek(self):
@@ -349,43 +349,41 @@ class ComputeCoolStuff():
             
         return users
 
-    def plotByUserByWeek(self):
-        users = self.getMessagesByUserByWeek()
+    def plot(self, x_axis, y_axis, label):
+        plt.plot(x_axis, y_axis, label=label)
+    
+    def plot_set_params(self, xlabel, ylabel, title):
+        plt.xlabel(xlabel)
+        plt.ylabel(ylabel)
+        plt.title(title)
+        plt.xticks(rotation=30)
+        plt.legend()
+        plt.grid()
 
+    def plot_show(self):
+        plt.show()
+
+    def plot_messages_by_user_by_week(self):
+        users = self.getMessagesByUserByWeek()
+    
         for user in users:
             x_axis = list(users[user].keys())
             y_axis = list(users[user].values())
+            self.plot(x_axis, y_axis, label=user)
 
-            plt.plot(x_axis, y_axis, label=user)
+        self.plot_set_params('Weeks', '# Messages', "Number of Messages by Week by User")
 
-        plt.xticks(rotation=30)
-        plt.xlabel('Weeks')
-        plt.ylabel('# Messages')
-        plt.legend()
-        plt.grid()
-        plt.title("Number of Messages by Week by User")
-
-        plt.show()
-
-    def plotByUserByDay(self):
+    def plot_messages_by_user_by_day(self):
         users = self.getMessagesByUserByDay()
         for user in users:
             temp = {k: v for k, v in users[user].items() if v < 50}
             
             x_axis = list(temp.keys())
             y_axis = list(temp.values())
-            
 
-            plt.plot(x_axis, y_axis, label=user)
-
-        plt.xticks(rotation=30)
-        plt.xlabel('Days')
-        plt.ylabel('# Messages')
-        plt.legend()
-        plt.grid()
-        plt.title("Number of Messages by Week by User")
-
-        plt.show()
+            self.plot(x_axis, y_axis, label=user)
+        
+        self.plot_set_params('Days', '# Messages', "Number of Messages by Day by User")
 
     def compute_breaks(self):
         max_difference = 10
@@ -473,8 +471,8 @@ class ComputeCoolStuff():
         hours = days * 24 + seconds // 3600
         return hours
     
-    def plot_daily_activity(self):
-        arr = self.get_messages_every_5_minutes(self.messages)
+    def plot_daily_activity(self, frequency):
+        arr = self.get_messages_every_5_minutes(self.messages, frequency)
         x_axis = [i[0] for i in arr]
         y_axis = [i[1] for i in arr]
 
@@ -484,27 +482,27 @@ class ComputeCoolStuff():
         ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
         fig.autofmt_xdate()
 
-        plt.xticks(rotation=30)
-        plt.xlabel('Hour')
-        plt.ylabel('# Messages')
-        plt.title('Daily Messages per 5 Minutes with {}'.format(self.name))
+        self.plot_set_params('Hour', '# Messages', 'Daily Messages per {} Minutes with {}'.format(frequency, self.name))
+        self.plot_show()
 
-        plt.show()
-
-    def get_messages_every_5_minutes(self, messages):
-        out = {}
+    def get_messages_every_5_minutes(self, messages, frequency):
+        count_by_interval = {}
+        intervals = {}
         for msg in messages:
             date = msg['date']
-            minute = ((date.minute // 5) * 5)
+            day = datetime.date(date.year, date.month, date.day)
+
+            minute = ((date.minute // frequency) * frequency)
             hour = (date.hour)
             entry = datetime.datetime.strptime('{} {}'.format(hour, minute), '%H %M')
-            if entry in out:
-                out[entry] += 1
+            if entry in intervals:
+                intervals[entry] += 1
             else:
-                out[entry] = 1
-        sorted_out = sorted(out.items(), key=lambda x:x[0])
-        return sorted_out
-    
+                intervals[entry] = 1
+
+        return sorted(intervals.items(), key=lambda x:x[0])
+
+
 def getopts(argv):
     opts = {}
     while argv:
@@ -521,11 +519,20 @@ if __name__ == "__main__":
     args = getopts(sys.argv)
 
     if '-h' in args:
-        print('\nusage: [-A] parse all .html files')
+        print('\nusage: [-A] parse all .html files\n')
+        print('       List items:')
         print('       [-files] list all .html files with conversation, size and path')
-        print('       [-list] list all conversations with number of messages')
-        print('       [-load] load specific file')
-        print('       [-find <conversation name>] find specific conversation\n')
+        print('       [-list] list all conversations with number of messages\n')
+        print('       Run algorithms on specific items:')
+        print('       [-load <filename>] parse and load specific file')
+        print('       [-find <conversation name>] find specific parsed conversation\n')
+        print('       Algorithms:')
+        print('       [-breaks] Computes breaks of >8h you had in conversation')
+        print('       [-wordstats] Shows how many words users wrote')
+        print('       [-topwords] Shows top words in conversation')
+        print('       [-stats] Shows distribution of messages sent')
+        print('       [-activity] Shows activity in conversation from beginning')
+        print('       [-plot] Shows messages sent by users by week')
 
     if '-A' in args:
         print('Parsing ALL the files! This might take a while...')
@@ -566,20 +573,22 @@ if __name__ == "__main__":
             analytics.printUserStats()
 
         if '-activity' in args:
-            analytics.plot_daily_activity()
+            analytics.plot_daily_activity(10)
         
         if '-plot' in args:
-            analytics.plotByUserByWeek()
+            analytics.plot_messages_by_user_by_week()
+            analytics.plot_show()
 
     if '-test' in args:
         all_messages = []
         tmp = load_all_saved_files()
         for x in tmp:
             for msg in x['messages']:
-                all_messages.append(msg)
+                if msg['user'] == 'Alex Niznik':
+                    all_messages.append(msg)
         data = { 
             'name': 'All Conversations',
             'messages': all_messages
         }
         analytics = ComputeCoolStuff(data)
-        analytics.plot_daily_activity()
+        analytics.plot_daily_activity(10)
