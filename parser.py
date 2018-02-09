@@ -88,14 +88,14 @@ def print_listed_files(conversations):
 
 def find_file_by_conversation_name(conversation_name):
     conversations = load_all_saved_files()
-    for conversation in conversations:
-        if conversation['name'].startswith(conversation_name):
-            return conversation
+    for filename in conversations:
+        if conversations[filename]['name'].startswith(conversation_name):
+            return conversations[filename]
     
     conversations = list_all_files()
-    for conversation in conversations:
-        if conversation['name'].startswith(conversation_name):
-            return conversation
+    for filename in conversations:
+        if conversations[filename]['name'].startswith(conversation_name):
+            return conversations[filename]
     
     print("Could not find specified conversation.\n")
 
@@ -260,17 +260,36 @@ class ComputeCoolStuff():
         return (start_date.date(), end_date.date())
 
     def messagesByWeek(self):
-        weeks = {}
+        messages_by_week = {}
+        days_in_current_week = 0
+        is_first_day = True
         for message in self.messages:
             weekRange = self.week_range(message['date'])
-            start = weekRange[0]
-            end = weekRange[1]
+            current_date = message['date'].date()
+            current_week, end = weekRange
 
-            if start in weeks:
-                weeks[start] += 1
+            if not is_first_day:
+                if last_date != current_date:
+                    days_in_current_week += 1
+
+            if current_week in messages_by_week:
+                messages_by_week[current_week] += 1
             else:
-                weeks[start] = 1
-        return weeks  
+                if not is_first_day:
+                    messages_by_week[last_week] = messages_by_week[last_week] / days_in_current_week
+                    days_in_current_week = 0
+                messages_by_week[current_week] = 1
+
+            last_date = message['date'].date()
+            last_week = current_week
+
+            is_first_day = False
+
+        # Set last week
+        if days_in_current_week > 0:
+            messages_by_week[last_week] = messages_by_week[last_week] / days_in_current_week
+
+        return messages_by_week  
         
     def messagesByDay(self):
         days = {}
@@ -372,6 +391,14 @@ class ComputeCoolStuff():
             self.plot(x_axis, y_axis, label=user)
 
         self.plot_set_params('Weeks', '# Messages', "Number of Messages by Week by User")
+
+    def plot_messages_by_week(self):
+        weeks = self.messagesByWeek()
+        x_axis = list(weeks.keys())
+        y_axis = list(weeks.values())
+        self.plot(x_axis, y_axis, self.name)
+
+        self.plot_set_params('Weeks', '# Messages', "Average Number of Messages by Week by User")
 
     def plot_messages_by_user_by_day(self):
         users = self.getMessagesByUserByDay()
@@ -506,7 +533,9 @@ class ComputeCoolStuff():
 def getopts(argv):
     opts = {}
     while argv:
-        if argv[0][0] == '-':
+        if argv[0] == '-compare':
+            opts[argv[0]] = (argv[1], argv[2])
+        elif argv[0][0] == '-':
             if len(argv) > 1 and argv[1][0] != '-':
                 opts[argv[0]] = argv[1]
             else:
@@ -560,6 +589,7 @@ if __name__ == "__main__":
                 data = pickle.load(fp)
 
         analytics = ComputeCoolStuff(data)
+
         if '-breaks' in args:
             analytics.compute_breaks()
         
@@ -576,14 +606,31 @@ if __name__ == "__main__":
             analytics.plot_daily_activity(10)
         
         if '-plot' in args:
-            analytics.plot_messages_by_user_by_week()
+            analytics.plot_messages_by_week()
             analytics.plot_show()
+    
+    if '-compare' in args:
+        analytics = {}
+        for filename in args['-compare']:
+            if filename.endswith('.html'):
+                with open ("./saved/{}_data.pickle".format(filename[:-5]), 'rb') as fp:
+                    print('Loading {}...'.format(filename))
+                    data = pickle.load(fp)
+                    analytics[data['name']] = ComputeCoolStuff(data)
+            else:
+                data = find_file_by_conversation_name(filename)
+                analytics[data['name']] = ComputeCoolStuff(data)
 
+        for username in analytics:
+            analytics[username].plot_messages_by_week()
+            
+        plt.show()
+        
     if '-test' in args:
         all_messages = []
         tmp = load_all_saved_files()
         for x in tmp:
-            for msg in x['messages']:
+            for msg in tmp[x]['messages']:
                 if msg['user'] == 'Alex Niznik':
                     all_messages.append(msg)
         data = { 
