@@ -11,35 +11,49 @@ import re
 from scipy.interpolate import spline
 import time
 
-directory = './messages'
-
-def load_all_conversations():
+def parse_all_files():
     files = []
-    for (dirpath, dirnames, filenames) in walk('{}'.format(directory)):
+    for (dirpath, dirnames, filenames) in walk('{}'.format('./messages')):
         files.extend(filenames)
         for filename in files:
-            with open('{}/{}'.format(directory, filename), 'r', encoding="utf8") as f:
-                if not os.path.isfile("./saved/{}_data.pickle".format(filename[:-5])):
-                    print('Parsing {}...'.format(filename), end="\r")
-                    content = f.read()
-                    parser = ParseHTMLForData()
-                    parser.feed(content)
-                    with open("./saved/{}_data.pickle".format(filename[:-5]), 'wb') as fp:
-                        print('Saving {}...'.format(filename), end="\r")
-                        data = { 
-                            'conversation': parser.conversationName,
-                            'messages': parser.msgs
-                        }
-                        pickle.dump(data, fp)
+            parse_file(filename)
         break
+    print("Done.")
 
-def list_all_conversations():
+
+def load_all_saved_files():
     conversations = []
     files = []
-    for (dirpath, dirnames, filenames) in walk('{}'.format(directory)):
+    for (dirpath, dirnames, filenames) in walk('{}'.format('./saved')):
+        files.extend(filenames)
+        print('Loading Data...')
+        for filename in files:
+            if(filename.endswith('.pickle')):
+                with open ("./saved/{}".format(filename), 'rb') as fp:
+                    data = pickle.load(fp)
+                    conversations.append(data)
+        break
+    return conversations
+
+
+def analyze_all_files(conversations):
+    messages_by_conversation = {}
+    total_messages = 0
+    for conversation in conversations:
+        messages_by_conversation[conversation['name']] = len(conversation['messages'])
+        total_messages += len(conversation['messages'])
+    
+    for entry in sorted(messages_by_conversation.items(), key=lambda x:x[1]):
+        print('{:<20} - {:,} Messages'.format(entry[0][:19], entry[1]))
+
+
+def list_all_files():
+    conversations = []
+    files = []
+    for (dirpath, dirnames, filenames) in walk('{}'.format('./messages')):
         files.extend(filenames)
         for filename in files:
-            with open('{}/{}'.format(directory, filename), 'r', encoding="utf8") as f:
+            with open('{}/{}'.format('./messages', filename), 'r', encoding="utf8") as f:
                 content = f.read()
                 walker = ParseHTMLForUsers()
                 try:
@@ -48,17 +62,51 @@ def list_all_conversations():
                     name = walker.conversationName
                     entry = {}
                     entry['name'] = name
-                    entry['size'] = os.path.getsize('{}/{}'.format(directory, filename))
+                    entry['size'] = os.path.getsize('{}/{}'.format('./messages', filename))
                     entry['filename'] = filename
                     conversations.append(entry)
         break
+    return conversations
 
+
+def print_listed_files(conversations):
     sorted_conversations = sorted(conversations, key=lambda x:x['size'])
     for entry in sorted_conversations:
-        print('{:<20} Size: {:.2f}MB, Filename: {}'.format(
+        print('{:<20} Size: {:.2f}MB, Path: {}'.format(
             entry['name'][:18],
             (entry['size']/1024),
             entry['filename']))
+
+
+def find_file_by_conversation_name(conversation_name):
+    conversations = load_all_saved_files()
+    for conversation in conversations:
+        if conversation['name'].startswith(conversation_name):
+            return conversation
+    
+    conversations = list_all_files()
+    for conversation in conversations:
+        if conversation['name'].startswith(conversation_name):
+            return conversation
+    
+    print("Could not find specified conversation.\n")
+
+
+def parse_file(filename):
+    with open("{}/{}".format('./messages', filename), 'r', encoding="utf8") as f:
+        # If file already parsed skip this step
+        if not os.path.isfile("./saved/{}_data.pickle".format(filename[:-5])):
+            print('Parsing {}...'.format(filename), end="\r")
+            content = f.read()
+            parser = ParseHTMLForData()
+            parser.feed(content)
+            with open("./saved/{}_data.pickle".format(filename[:-5]), 'wb') as fp:
+                print('Saving {}...'.format(filename), end="\r")
+                data = { 
+                    'name': parser.conversationName,
+                    'messages': parser.msgs
+                }
+                pickle.dump(data, fp)
 
 
 class ParseHTMLForData(HTMLParser):
@@ -166,17 +214,12 @@ class ParseHTMLForUsers(HTMLParser):
 class ComputeCoolStuff():
     def __init__(self, data):
         self.messages = data['messages']
-        self.name = data['conversation']
+        self.name = data['name']
         self.totalMessages = len(self.messages)
         self.users = list(self.get_num_of_messages_by_user().keys())
         
         print('\nConversation with {}'.format(self.name))
         print('Total messages: {}\n'.format(self.totalMessages))
-        # self.printUserStats()
-        # self.getAllWords(15)
-        # self.plotByUserByWeek()
-        # self.compute_breaks()
-        self.compute_total_words_by_user()
 
     def get_num_of_messages_by_user(self):
         senders = {}
@@ -304,7 +347,7 @@ class ComputeCoolStuff():
             x_axis = list(users[user].keys())
             y_axis = list(users[user].values())
 
-            plt.plot(x_axis, y_axis, label=user)
+            plt.bar(x_axis, y_axis, width=5, label=user)
 
         plt.xticks(rotation=30)
         plt.xlabel('Weeks')
@@ -421,52 +464,67 @@ class ComputeCoolStuff():
         hours = days * 24 + seconds // 3600
         return hours
 
+
 def getopts(argv):
     opts = {}
     while argv:
         if argv[0][0] == '-':
-            if len(argv) > 1:
+            if len(argv) > 1 and argv[1][0] != '-':
                 opts[argv[0]] = argv[1]
             else:
                 opts[argv[0]] = True
         argv = argv[1:]
     return opts
 
+
 if __name__ == "__main__":
     args = getopts(sys.argv)
 
+    if '-h' in args:
+        print('\nusage: [-A] parse all .html files')
+        print('       [-files] list all .html files with conversation, size and path')
+        print('       [-list] list all conversations with number of messages')
+        print('       [-load] load specific file')
+        print('       [-find <conversation name>] find specific conversation\n')
+
     if '-A' in args:
         print('Parsing ALL the files! This might take a while...')
-        load_all_conversations()
+        parse_all_files()
+    
+    if '-list' in args:
+        analyze_all_files(load_all_saved_files())
 
-    if '-f' in args:
-        filename = args['-f']
-        print("Opening {}/{}".format(directory, filename))
-        with open("{}/{}".format(directory, filename), 'r', encoding="utf8") as f:
-            if not os.path.isfile("./saved/{}_data.pickle".format(filename[:-5])):
-                print('Parsing Data...')
-                content = f.read()
-                parser = ParseHTMLForData()
-                parser.feed(content)
-                with open("./saved/{}_data.pickle".format(filename[:-5]), 'wb') as fp:
-                    print('Saving Data...')
-                    data = { 
-                        'conversation': parser.conversationName,
-                        'messages': parser.msgs
-                    }
-                    pickle.dump(data, fp)
+    if '-files' in args:
+        print_listed_files(list_all_files())
+    elif '-find' in args or '-load' in args:
+        if '-find' in args:
+            if (type(args['-find']) != bool):
+                data = find_file_by_conversation_name(args['-find'])
+            else:
+                print('Enter a name to find')
+
+        if '-load' in args:
+            filename = args['-load']
+            print("Opening {}/{}".format('./messages', filename))
+            parse_file(filename)
 
             with open ("./saved/{}_data.pickle".format(filename[:-5]), 'rb') as fp:
-                print('Loading Data...')
-                print('\n')
+                print('Loading {}...'.format(filename))
                 data = pickle.load(fp)
-                analytics = ComputeCoolStuff(data)
-                print('\n')
 
-    else:
-        list_all_conversations()
-        print()
-        print('Select a filename to run the program on.')
-        print('Example Use:')
-        print('py -3 parser.py -f 760.html')
+        analytics = ComputeCoolStuff(data)
+        if '-breaks' in args:
+            analytics.compute_breaks()
+        
+        if '-wordstats' in args:
+            analytics.compute_total_words_by_user()
 
+        if '-topwords' in args:
+            analytics.getAllWords()
+
+        if '-stats' in args:
+            analytics.printUserStats()
+        
+        if '-plot' in args:
+            analytics.plotByUserByWeek()
+        
