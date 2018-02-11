@@ -93,9 +93,9 @@ def find_file_by_conversation_name(conversation_name):
             return conversations[filename]
     
     conversations = list_all_files()
-    for filename in conversations:
-        if conversations[filename]['name'].startswith(conversation_name):
-            return conversations[filename]
+    for conversation in conversations:
+        if conversation['name'].startswith(conversation_name):
+            return conversation
     
     print("Could not find specified conversation.\n")
 
@@ -606,7 +606,8 @@ if __name__ == "__main__":
             analytics.plot_daily_activity(10)
         
         if '-plot' in args:
-            analytics.plot_messages_by_week()
+            # analytics.plot_messages_by_week()
+            analytics.plot_messages_by_user_by_week()
             analytics.plot_show()
     
     if '-compare' in args:
