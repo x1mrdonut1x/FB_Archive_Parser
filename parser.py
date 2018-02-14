@@ -2,13 +2,10 @@ from html.parser import HTMLParser
 import pickle
 import os.path
 from os import listdir, walk
-import operator
 import sys
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
-import numpy as np
 import re
-from scipy.interpolate import spline
 import datetime
 
 def parse_all_files():
@@ -331,7 +328,7 @@ class ComputeCoolStuff():
             else:
                 words_count[word] = 1
         
-        sorted_words = sorted(words_count.items(), key=operator.itemgetter(1))
+        sorted_words = sorted(words_count.items(), key=lambda x:x[1])
         print('Top {} Words:'.format(n))
         for word in sorted_words[-n:]:
             if word[1] > 5: # If count bigger than 5
