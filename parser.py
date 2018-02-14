@@ -1,45 +1,64 @@
 from html.parser import HTMLParser
-from datetime import datetime, timedelta
 import pickle
 import os.path
 from os import listdir, walk
-import operator
 import sys
 import matplotlib.pyplot as plt
-import numpy as np
+import matplotlib.dates as mdates
 import re
-from scipy.interpolate import spline
-import time
+import datetime
 
-directory = './messages'
-
-def load_all_conversations():
+def parse_all_files():
     files = []
-    for (dirpath, dirnames, filenames) in walk('{}'.format(directory)):
+    for (dirpath, dirnames, filenames) in walk('{}'.format('./messages')):
         files.extend(filenames)
         for filename in files:
-            with open('{}/{}'.format(directory, filename), 'r', encoding="utf8") as f:
-                if not os.path.isfile("./saved/{}_data.pickle".format(filename[:-5])):
-                    print('Parsing {}...'.format(filename), end="\r")
-                    content = f.read()
-                    parser = ParseHTMLForData()
-                    parser.feed(content)
-                    with open("./saved/{}_data.pickle".format(filename[:-5]), 'wb') as fp:
-                        print('Saving {}...'.format(filename), end="\r")
-                        data = { 
-                            'conversation': parser.conversationName,
-                            'messages': parser.msgs
-                        }
-                        pickle.dump(data, fp)
+            parse_file(filename)
         break
+    print("Done.")
 
-def list_all_conversations():
+
+def load_all_saved_files():
+    conversations = {}
+    files = []
+    for (dirpath, dirnames, filenames) in walk('{}'.format('./saved')):
+        files.extend(filenames)
+        print('Loading Data...')
+        for filename in files:
+            if(filename.endswith('.pickle')):
+                with open ("./saved/{}".format(filename), 'rb') as fp:
+                    data = pickle.load(fp)
+                    conversations[filename[:-12]] = data
+        break
+    return conversations
+
+
+def analyze_all_files(conversations):
+    messages_by_conversation = {}
+    total_messages = 0
+    total_conversations = 0
+    for filename in conversations:
+        num_messages = len(conversations[filename]['messages'])
+        messages_by_conversation[filename] = num_messages
+        total_messages += num_messages
+        if num_messages > 1:
+            total_conversations += 1
+    
+    print('Total Messages: {:,}'.format(total_messages))
+    print('Total Conversations: {:,}'.format(total_conversations))
+
+    for entry in sorted(messages_by_conversation.items(), key=lambda x:x[1]):
+        if entry[1] > 1:
+            print('{:>9} - {:<20} - {:,} Messages'.format((entry[0] + '.html'), conversations[entry[0]]['name'][:19], entry[1]))
+        
+
+def list_all_files():
     conversations = []
     files = []
-    for (dirpath, dirnames, filenames) in walk('{}'.format(directory)):
+    for (dirpath, dirnames, filenames) in walk('{}'.format('./messages')):
         files.extend(filenames)
         for filename in files:
-            with open('{}/{}'.format(directory, filename), 'r', encoding="utf8") as f:
+            with open('{}/{}'.format('./messages', filename), 'r', encoding="utf8") as f:
                 content = f.read()
                 walker = ParseHTMLForUsers()
                 try:
@@ -48,17 +67,51 @@ def list_all_conversations():
                     name = walker.conversationName
                     entry = {}
                     entry['name'] = name
-                    entry['size'] = os.path.getsize('{}/{}'.format(directory, filename))
+                    entry['size'] = os.path.getsize('{}/{}'.format('./messages', filename))
                     entry['filename'] = filename
                     conversations.append(entry)
         break
+    return conversations
 
+
+def print_listed_files(conversations):
     sorted_conversations = sorted(conversations, key=lambda x:x['size'])
     for entry in sorted_conversations:
-        print('{:<20} Size: {:.2f}MB, Filename: {}'.format(
+        print('{:<20} Size: {:.2f}MB, Path: {}'.format(
             entry['name'][:18],
             (entry['size']/1024),
             entry['filename']))
+
+
+def find_file_by_conversation_name(conversation_name):
+    conversations = load_all_saved_files()
+    for filename in conversations:
+        if conversations[filename]['name'].startswith(conversation_name):
+            return conversations[filename]
+    
+    conversations = list_all_files()
+    for conversation in conversations:
+        if conversation['name'].startswith(conversation_name):
+            return conversation
+    
+    print("Could not find specified conversation.\n")
+
+
+def parse_file(filename):
+    with open("{}/{}".format('./messages', filename), 'r', encoding="utf8") as f:
+        # If file already parsed skip this step
+        if not os.path.isfile("./saved/{}_data.pickle".format(filename[:-5])):
+            print('Parsing {}...'.format(filename), end="\r")
+            content = f.read()
+            parser = ParseHTMLForData()
+            parser.feed(content)
+            with open("./saved/{}_data.pickle".format(filename[:-5]), 'wb') as fp:
+                print('Saving {}...'.format(filename), end="\r")
+                data = { 
+                    'name': parser.conversationName,
+                    'messages': parser.msgs
+                }
+                pickle.dump(data, fp)
 
 
 class ParseHTMLForData(HTMLParser):
@@ -166,17 +219,12 @@ class ParseHTMLForUsers(HTMLParser):
 class ComputeCoolStuff():
     def __init__(self, data):
         self.messages = data['messages']
-        self.name = data['conversation']
+        self.name = data['name']
         self.totalMessages = len(self.messages)
         self.users = list(self.get_num_of_messages_by_user().keys())
         
         print('\nConversation with {}'.format(self.name))
-        print('Total messages: {}\n'.format(self.totalMessages))
-        # self.printUserStats()
-        # self.getAllWords(15)
-        # self.plotByUserByWeek()
-        # self.compute_breaks()
-        self.compute_total_words_by_user()
+        print('Total messages: {:,}\n'.format(self.totalMessages))
 
     def get_num_of_messages_by_user(self):
         senders = {}
@@ -195,7 +243,7 @@ class ComputeCoolStuff():
         sorted_senders = self.sort_dict(senders)
         print('User Stats:')
         for sender in sorted_senders:
-            print('{:<18} {} {:<6} ({:.2f}%)'.format(sender[0], '-', sender[1], (sender[1]/self.totalMessages)*100))
+            print('{:<18} - {:,} Messages({:.2f}%)'.format(sender[0], sender[1], (sender[1]/self.totalMessages)*100))
         print()
 
     def week_range(self, date):
@@ -203,23 +251,42 @@ class ComputeCoolStuff():
         if dow == 7:
             start_date = date
         else:
-            start_date = date - timedelta(dow)
+            start_date = date - datetime.timedelta(dow)
             
-        end_date = start_date + timedelta(6)
+        end_date = start_date + datetime.timedelta(6)
         return (start_date.date(), end_date.date())
 
     def messagesByWeek(self):
-        weeks = {}
+        messages_by_week = {}
+        days_in_current_week = 0
+        is_first_day = True
         for message in self.messages:
             weekRange = self.week_range(message['date'])
-            start = weekRange[0]
-            end = weekRange[1]
+            current_date = message['date'].date()
+            current_week, end = weekRange
 
-            if start in weeks:
-                weeks[start] += 1
+            if not is_first_day:
+                if last_date != current_date:
+                    days_in_current_week += 1
+
+            if current_week in messages_by_week:
+                messages_by_week[current_week] += 1
             else:
-                weeks[start] = 1
-        return weeks  
+                if not is_first_day:
+                    messages_by_week[last_week] = messages_by_week[last_week] / days_in_current_week
+                    days_in_current_week = 0
+                messages_by_week[current_week] = 1
+
+            last_date = message['date'].date()
+            last_week = current_week
+
+            is_first_day = False
+
+        # Set last week
+        if days_in_current_week > 0:
+            messages_by_week[last_week] = messages_by_week[last_week] / days_in_current_week
+
+        return messages_by_week  
         
     def messagesByDay(self):
         days = {}
@@ -261,11 +328,12 @@ class ComputeCoolStuff():
             else:
                 words_count[word] = 1
         
-        sorted_words = sorted(words_count.items(), key=operator.itemgetter(1))
+        sorted_words = sorted(words_count.items(), key=lambda x:x[1])
         print('Top {} Words:'.format(n))
         for word in sorted_words[-n:]:
             if word[1] > 5: # If count bigger than 5
                 print('{:<8} - {}'.format(word[0], word[1]))
+        print()
 
     def getMessagesByUserByWeek(self):
         users = dict((user, {}) for user in self.users)
@@ -297,43 +365,49 @@ class ComputeCoolStuff():
             
         return users
 
-    def plotByUserByWeek(self):
-        users = self.getMessagesByUserByWeek()
+    def plot(self, x_axis, y_axis, label):
+        plt.plot(x_axis, y_axis, label=label)
+    
+    def plot_set_params(self, xlabel, ylabel, title):
+        plt.xlabel(xlabel)
+        plt.ylabel(ylabel)
+        plt.title(title)
+        plt.xticks(rotation=30)
+        plt.legend()
+        plt.grid()
 
+    def plot_show(self):
+        plt.show()
+
+    def plot_messages_by_user_by_week(self):
+        users = self.getMessagesByUserByWeek()
+    
         for user in users:
             x_axis = list(users[user].keys())
             y_axis = list(users[user].values())
+            self.plot(x_axis, y_axis, label=user)
 
-            plt.plot(x_axis, y_axis, label=user)
+        self.plot_set_params('Weeks', '# Messages', "Number of Messages by Week by User")
 
-        plt.xticks(rotation=30)
-        plt.xlabel('Weeks')
-        plt.ylabel('# Messages')
-        plt.legend()
-        plt.grid()
-        plt.title("Number of Messages by Week by User")
+    def plot_messages_by_week(self):
+        weeks = self.messagesByWeek()
+        x_axis = list(weeks.keys())
+        y_axis = list(weeks.values())
+        self.plot(x_axis, y_axis, self.name)
 
-        plt.show()
+        self.plot_set_params('Weeks', '# Messages', "Average Number of Messages by Week by User")
 
-    def plotByUserByDay(self):
+    def plot_messages_by_user_by_day(self):
         users = self.getMessagesByUserByDay()
         for user in users:
             temp = {k: v for k, v in users[user].items() if v < 50}
             
             x_axis = list(temp.keys())
             y_axis = list(temp.values())
-            
 
-            plt.plot(x_axis, y_axis, label=user)
-
-        plt.xticks(rotation=30)
-        plt.xlabel('Days')
-        plt.ylabel('# Messages')
-        plt.legend()
-        plt.grid()
-        plt.title("Number of Messages by Week by User")
-
-        plt.show()
+            self.plot(x_axis, y_axis, label=user)
+        
+        self.plot_set_params('Days', '# Messages', "Number of Messages by Day by User")
 
     def compute_breaks(self):
         max_difference = 10
@@ -420,53 +494,146 @@ class ComputeCoolStuff():
         days, seconds = diff.days, diff.seconds
         hours = days * 24 + seconds // 3600
         return hours
+    
+    def plot_daily_activity(self, frequency):
+        arr = self.get_messages_every_5_minutes(self.messages, frequency)
+        x_axis = [i[0] for i in arr]
+        y_axis = [i[1] for i in arr]
+
+        fig, ax = plt.subplots()
+        ax.plot(x_axis, y_axis)
+        
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
+        fig.autofmt_xdate()
+
+        self.plot_set_params('Hour', '# Messages', 'Daily Messages per {} Minutes with {}'.format(frequency, self.name))
+        self.plot_show()
+
+    def get_messages_every_5_minutes(self, messages, frequency):
+        count_by_interval = {}
+        intervals = {}
+        for msg in messages:
+            date = msg['date']
+            day = datetime.date(date.year, date.month, date.day)
+
+            minute = ((date.minute // frequency) * frequency)
+            hour = (date.hour)
+            entry = datetime.datetime.strptime('{} {}'.format(hour, minute), '%H %M')
+            if entry in intervals:
+                intervals[entry] += 1
+            else:
+                intervals[entry] = 1
+
+        return sorted(intervals.items(), key=lambda x:x[0])
+
 
 def getopts(argv):
     opts = {}
     while argv:
-        if argv[0][0] == '-':
-            if len(argv) > 1:
+        if argv[0] == '-compare':
+            opts[argv[0]] = (argv[1], argv[2])
+        elif argv[0][0] == '-':
+            if len(argv) > 1 and argv[1][0] != '-':
                 opts[argv[0]] = argv[1]
             else:
                 opts[argv[0]] = True
         argv = argv[1:]
     return opts
 
+
 if __name__ == "__main__":
     args = getopts(sys.argv)
 
+    if '-h' in args:
+        print('\nusage: [-A] parse all .html files\n')
+        print('       List items:')
+        print('       [-files] list all .html files with conversation, size and path')
+        print('       [-list] list all conversations with number of messages\n')
+        print('       Run algorithms on specific items:')
+        print('       [-load <filename>] parse and load specific file')
+        print('       [-find <conversation name>] find specific parsed conversation\n')
+        print('       Algorithms:')
+        print('       [-breaks] Computes breaks of >8h you had in conversation')
+        print('       [-wordstats] Shows how many words users wrote')
+        print('       [-topwords] Shows top words in conversation')
+        print('       [-stats] Shows distribution of messages sent')
+        print('       [-activity] Shows activity in conversation from beginning')
+        print('       [-plot] Shows messages sent by users by week')
+
     if '-A' in args:
         print('Parsing ALL the files! This might take a while...')
-        load_all_conversations()
+        parse_all_files()
+    
+    if '-list' in args:
+        analyze_all_files(load_all_saved_files())
 
-    if '-f' in args:
-        filename = args['-f']
-        print("Opening {}/{}".format(directory, filename))
-        with open("{}/{}".format(directory, filename), 'r', encoding="utf8") as f:
-            if not os.path.isfile("./saved/{}_data.pickle".format(filename[:-5])):
-                print('Parsing Data...')
-                content = f.read()
-                parser = ParseHTMLForData()
-                parser.feed(content)
-                with open("./saved/{}_data.pickle".format(filename[:-5]), 'wb') as fp:
-                    print('Saving Data...')
-                    data = { 
-                        'conversation': parser.conversationName,
-                        'messages': parser.msgs
-                    }
-                    pickle.dump(data, fp)
+    if '-files' in args:
+        print_listed_files(list_all_files())
+    elif '-find' in args or '-load' in args:
+        if '-find' in args:
+            if (type(args['-find']) != bool):
+                data = find_file_by_conversation_name(args['-find'])
+            else:
+                print('Enter a name to find')
+
+        if '-load' in args:
+            filename = args['-load']
+            print("Opening {}/{}".format('./messages', filename))
+            parse_file(filename)
 
             with open ("./saved/{}_data.pickle".format(filename[:-5]), 'rb') as fp:
-                print('Loading Data...')
-                print('\n')
+                print('Loading {}...'.format(filename))
                 data = pickle.load(fp)
-                analytics = ComputeCoolStuff(data)
-                print('\n')
 
-    else:
-        list_all_conversations()
-        print()
-        print('Select a filename to run the program on.')
-        print('Example Use:')
-        print('py -3 parser.py -f 760.html')
+        analytics = ComputeCoolStuff(data)
 
+        if '-breaks' in args:
+            analytics.compute_breaks()
+        
+        if '-wordstats' in args:
+            analytics.compute_total_words_by_user()
+
+        if '-topwords' in args:
+            analytics.getAllWords(15)
+
+        if '-stats' in args:
+            analytics.printUserStats()
+
+        if '-activity' in args:
+            analytics.plot_daily_activity(10)
+        
+        if '-plot' in args:
+            # analytics.plot_messages_by_week()
+            analytics.plot_messages_by_user_by_week()
+            analytics.plot_show()
+    
+    if '-compare' in args:
+        analytics = {}
+        for filename in args['-compare']:
+            if filename.endswith('.html'):
+                with open ("./saved/{}_data.pickle".format(filename[:-5]), 'rb') as fp:
+                    print('Loading {}...'.format(filename))
+                    data = pickle.load(fp)
+                    analytics[data['name']] = ComputeCoolStuff(data)
+            else:
+                data = find_file_by_conversation_name(filename)
+                analytics[data['name']] = ComputeCoolStuff(data)
+
+        for username in analytics:
+            analytics[username].plot_messages_by_week()
+            
+        plt.show()
+        
+    if '-test' in args:
+        all_messages = []
+        tmp = load_all_saved_files()
+        for x in tmp:
+            for msg in tmp[x]['messages']:
+                if msg['user'] == 'Alex Niznik':
+                    all_messages.append(msg)
+        data = { 
+            'name': 'All Conversations',
+            'messages': all_messages
+        }
+        analytics = ComputeCoolStuff(data)
+        analytics.plot_daily_activity(10)
